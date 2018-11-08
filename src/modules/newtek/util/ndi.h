@@ -43,6 +43,7 @@ extern void (*fs_free_video)(NDIlib_framesync_instance_t p_instance, NDIlib_vide
 const std::wstring& dll_name();
 NDIlib_v3*          load_library();
 
-std::vector<int32_t> audio_16_to_32(short* audio_data, int size);
+std::vector<int32_t> audio_16_to_32(const short* audio_data, int size);
+std::vector<float>   audio_32_to_32f(const int* audio_data, int size);
 
 }}} // namespace caspar::newtek::ndi

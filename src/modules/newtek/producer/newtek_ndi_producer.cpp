@@ -197,8 +197,6 @@ struct newtek_ndi_producer : public core::frame_producer
                     ndi_lib_->NDIlib_util_audio_to_interleaved_16s_v2(&audio_frame, &audio_frame_16s);
                     a_frame->channels    = audio_frame_16s.no_channels;
                     a_frame->sample_rate = audio_frame_16s.sample_rate;
-
-                    a_frame->format     = AV_SAMPLE_FMT_S32;
                     a_frame->nb_samples = audio_frame_16s.no_samples;
                     audio_data_32s =
                         ndi::audio_16_to_32(audio_frame_16s.p_data, audio_frame.no_samples * audio_frame.no_channels);

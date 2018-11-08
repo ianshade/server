@@ -50,8 +50,7 @@ struct newtek_ndi_consumer : public core::frame_consumer
     NDIlib_v3*                           ndi_lib_;
     NDIlib_send_instance_t               ndi_send_instance_;
     NDIlib_video_frame_v2_t              ndi_video_frame_;
-    NDIlib_audio_frame_interleaved_16s_t ndi_audio_frame_;
-    std::atomic<bool>                    connected_ = false;
+    NDIlib_audio_frame_interleaved_32f_t ndi_audio_frame_;
     spl::shared_ptr<diagnostics::graph>  graph_;
     caspar::timer                        tick_timer_;
     caspar::timer                        frame_timer_;
@@ -85,7 +84,7 @@ struct newtek_ndi_consumer : public core::frame_consumer
         NDIlib_send_create_t NDI_send_create_desc;
         auto                 tmp_name    = u8(name_);
         NDI_send_create_desc.p_ndi_name  = tmp_name.c_str();
-        NDI_send_create_desc.clock_video = false; // TODO: maybe send on separate thread and keep clocking
+        NDI_send_create_desc.clock_video = false; // TODO: maybe keep clocking (?)
         NDI_send_create_desc.clock_audio = false;
         ndi_send_instance_               = ndi_lib_->NDIlib_send_create(&NDI_send_create_desc);
 
@@ -96,6 +95,10 @@ struct newtek_ndi_consumer : public core::frame_consumer
         ndi_video_frame_.FourCC               = NDIlib_FourCC_type_BGRA;
         ndi_video_frame_.line_stride_in_bytes = format_desc.width * 4;
 
+        ndi_audio_frame_.sample_rate = format_desc_.audio_sample_rate;
+        ndi_audio_frame_.no_channels = format_desc_.audio_channels;
+        ndi_audio_frame_.timecode    = NDIlib_send_timecode_synthesize;
+
         CASPAR_VERIFY(ndi_send_instance_);
     }
 
@@ -105,16 +108,14 @@ struct newtek_ndi_consumer : public core::frame_consumer
 
         graph_->set_value("tick-time", tick_timer_.elapsed() * format_desc_.fps * 0.5);
         tick_timer_.restart();
-
         frame_timer_.restart();
-        auto audio_buffer            = core::audio_32_to_16(frame.audio_data());
-        ndi_audio_frame_.sample_rate = format_desc_.audio_sample_rate;
-        ndi_audio_frame_.no_channels = format_desc_.audio_channels;
-        ndi_audio_frame_.no_samples  = static_cast<int>(audio_buffer.size()) / format_desc_.audio_channels;
-        ndi_audio_frame_.timecode    = NDIlib_send_timecode_synthesize;
-        ndi_audio_frame_.p_data      = const_cast<short*>(audio_buffer.data());
 
-        ndi_lib_->NDIlib_util_send_send_audio_interleaved_16s(ndi_send_instance_, &ndi_audio_frame_);
+        auto audio_data                 = frame.audio_data();
+        int  audio_data_size            = static_cast<int>(audio_data.size());
+        ndi_audio_frame_.no_samples     = audio_data_size / format_desc_.audio_channels;
+        std::vector<float> audio_buffer = ndi::audio_32_to_32f(audio_data.data(), audio_data_size);
+        ndi_audio_frame_.p_data         = const_cast<float*>(audio_buffer.data());
+        ndi_lib_->NDIlib_util_send_send_audio_interleaved_32f(ndi_send_instance_, &ndi_audio_frame_);
 
         ndi_video_frame_.p_data = const_cast<uint8_t*>(frame.image_data(0).begin());
         ndi_lib_->NDIlib_send_send_video_v2(ndi_send_instance_, &ndi_video_frame_);
@@ -124,7 +125,10 @@ struct newtek_ndi_consumer : public core::frame_consumer
         return make_ready_future(true);
     }
 
-    std::wstring print() const override { return L"newtek-ndi[" + name_ + L"]"; }
+    std::wstring print() const override
+    {
+        return L"newtek-ndi[" + name_ + L"]";
+    } // TODO: maybe put tally status in the name
 
     std::wstring name() const override { return L"newtek-ndi"; }
 
