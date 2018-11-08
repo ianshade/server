@@ -84,8 +84,8 @@ struct newtek_ndi_consumer : public core::frame_consumer
         NDIlib_send_create_t NDI_send_create_desc;
         auto                 tmp_name    = u8(name_);
         NDI_send_create_desc.p_ndi_name  = tmp_name.c_str();
-        NDI_send_create_desc.clock_video = false; // TODO: maybe keep clocking (?)
-        NDI_send_create_desc.clock_audio = false;
+        //NDI_send_create_desc.clock_video = false;
+        //NDI_send_create_desc.clock_audio = false;
         ndi_send_instance_               = ndi_lib_->NDIlib_send_create(&NDI_send_create_desc);
 
         ndi_video_frame_.xres                 = format_desc.width;
