@@ -59,7 +59,6 @@ extern "C" {
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
-#include <atomic>
 
 #include "../util/ndi.h"
 
@@ -85,6 +84,7 @@ struct newtek_ndi_producer : public core::frame_producer
     std::queue<core::draw_frame> frames_;
     mutable std::mutex           frames_mutex_;
     core::draw_frame             last_frame_ = core::draw_frame::empty();
+    int                          frame_no_;
     executor                     executor_;
 
     int cadence_counter_;
@@ -100,10 +100,10 @@ struct newtek_ndi_producer : public core::frame_producer
         , executor_(print())
         , instance_no_(instances_++)
         , cadence_counter_(0)
+        , frame_no_(0)
     {
         if (!ndi::load_library()) {
-            CASPAR_THROW_EXCEPTION(not_supported() << msg_info(
-                                       ndi::dll_name() + L" not available. Install NDI Redist version 3.7 or higher."));
+            ndi::not_installed();
         }
 
         graph_->set_text(print());
@@ -135,6 +135,9 @@ struct newtek_ndi_producer : public core::frame_producer
         graph_->set_value("tick-time", tick_timer_.elapsed() * format_desc_.fps * 0.5);
         tick_timer_.restart();
         core::draw_frame frame;
+        if (0 == frame_no_++) {
+            executor_.invoke([this]() { prepare_next_frame(); });
+        }
         executor_.begin_invoke([this]() { prepare_next_frame(); });
         {
             std::lock_guard<std::mutex> lock(frames_mutex_);
@@ -154,19 +157,18 @@ struct newtek_ndi_producer : public core::frame_producer
             frame_timer_.restart();
             NDIlib_video_frame_v2_t video_frame;
             NDIlib_audio_frame_v2_t audio_frame;
+            ndi::fs_capture_video(ndi_framesync_, &video_frame, NDIlib_frame_format_type_progressive);
             ndi::fs_capture_audio(ndi_framesync_,
                                   &audio_frame,
                                   format_desc_.audio_sample_rate,
                                   format_desc_.audio_channels,
                                   format_desc_.audio_cadence[++cadence_counter_ %= cadence_length_]);
-            ndi::fs_capture_video(ndi_framesync_, &video_frame, NDIlib_frame_format_type_progressive);
             if (video_frame.p_data != nullptr) {
                 std::shared_ptr<AVFrame> av_frame(av_frame_alloc(), [](AVFrame* frame) { av_frame_free(&frame); });
                 std::shared_ptr<AVFrame> a_frame(av_frame_alloc(), [](AVFrame* frame) { av_frame_free(&frame); });
                 av_frame->data[0]     = video_frame.p_data;
                 av_frame->linesize[0] = video_frame.line_stride_in_bytes;
                 switch (video_frame.FourCC) {
-                    break;
                     case NDIlib_FourCC_type_BGRA:
                         av_frame->format = AV_PIX_FMT_BGRA;
                         break;
@@ -179,10 +181,12 @@ struct newtek_ndi_producer : public core::frame_producer
                     case NDIlib_FourCC_type_RGBX:
                         av_frame->format = AV_PIX_FMT_RGBA;
                         break;
-                    default:
+                    default: // should never happen because library handles the conversion for us
                         av_frame->format = AV_PIX_FMT_BGRA;
-                        CASPAR_LOG(warning)
-                            << print() << L" NDI frame format not supported (" << video_frame.FourCC << L").";
+                        // cannot log here:
+                        /*CASPAR_LOG(warning)
+                            << print() << L" NDI frame format not supported (" << video_frame.FourCC << L").";*/
+                        break;
                 }
                 av_frame->width  = video_frame.xres;
                 av_frame->height = video_frame.yres;
@@ -193,11 +197,11 @@ struct newtek_ndi_producer : public core::frame_producer
                 std::vector<int>                     audio_data_32s;
                 audio_frame_16s.p_data = new short[audio_frame.no_samples * audio_frame.no_channels];
                 if (audio_frame.p_data != nullptr) {
-                    audio_frame_16s.reference_level = 0; // not sure
+                    audio_frame_16s.reference_level = 0;
                     ndi_lib_->NDIlib_util_audio_to_interleaved_16s_v2(&audio_frame, &audio_frame_16s);
                     a_frame->channels    = audio_frame_16s.no_channels;
                     a_frame->sample_rate = audio_frame_16s.sample_rate;
-                    a_frame->nb_samples = audio_frame_16s.no_samples;
+                    a_frame->nb_samples  = audio_frame_16s.no_samples;
                     audio_data_32s =
                         ndi::audio_16_to_32(audio_frame_16s.p_data, audio_frame.no_samples * audio_frame.no_channels);
                     a_frame->data[0] = reinterpret_cast<uint8_t*>(audio_data_32s.data());
@@ -208,7 +212,7 @@ struct newtek_ndi_producer : public core::frame_producer
                 {
                     std::lock_guard<std::mutex> lock(frames_mutex_);
                     frames_.push(dframe);
-                    while (frames_.size() > 2) { // should never happen because of frame sync
+                    while (frames_.size() > 2) { // should never happen because frame sync takes care of it
                         frames_.pop();
                         graph_->set_tag(diagnostics::tag_severity::WARNING, "dropped-frame");
                         CASPAR_LOG(info) << print() << "Frame dropped";
@@ -231,17 +235,32 @@ struct newtek_ndi_producer : public core::frame_producer
 
     void initialize()
     {
-        ndi_lib_ = ndi::load_library();
+        ndi_lib_                        = ndi::load_library();
+        auto                    sources = ndi::get_current_sources();
         NDIlib_recv_create_v3_t NDI_recv_create_desc;
-        NDI_recv_create_desc.allow_video_fields              = false;
-        NDI_recv_create_desc.bandwidth                       = NDIlib_recv_bandwidth_highest;
-        NDI_recv_create_desc.color_format                    = NDIlib_recv_color_format_BGRX_BGRA;
-        std::string tmp_name                                 = u8(name_);
-        NDI_recv_create_desc.p_ndi_recv_name                 = tmp_name.c_str();
-        NDI_recv_create_desc.source_to_connect_to.p_ndi_name = tmp_name.c_str();
+        NDI_recv_create_desc.allow_video_fields = false;
+        NDI_recv_create_desc.bandwidth          = NDIlib_recv_bandwidth_highest;
+        NDI_recv_create_desc.color_format       = NDIlib_recv_color_format_BGRX_BGRA;
+        std::string src_name                    = u8(name_);
+
+        NDI_recv_create_desc.source_to_connect_to.p_ndi_name = src_name.c_str();
+        NDI_recv_create_desc.p_ndi_recv_name                 = src_name.c_str();
         ndi_recv_instance_                                   = ndi_lib_->NDIlib_recv_create_v3(&NDI_recv_create_desc);
         ndi_framesync_                                       = ndi::fs_create(ndi_recv_instance_);
+        auto found_source                                    = sources->find(src_name);
+        if (found_source != sources->end()) {
+            
+            ndi_lib_->NDIlib_recv_connect(ndi_recv_instance_, &found_source->second);
+        }
         CASPAR_VERIFY(ndi_recv_instance_);
+    }
+
+    core::draw_frame last_frame() override
+    {
+        if (!last_frame_) {
+            last_frame_ = receive_impl(0);
+        }
+        return core::draw_frame::still(last_frame_);
     }
 
 }; // namespace newtek

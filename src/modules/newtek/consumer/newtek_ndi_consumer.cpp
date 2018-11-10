@@ -38,8 +38,6 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/property_tree/ptree.hpp>
 
-#include <atomic>
-
 #include "../util/ndi.h"
 
 namespace caspar { namespace newtek {
@@ -61,8 +59,7 @@ struct newtek_ndi_consumer : public core::frame_consumer
         : name_(name)
     {
         if (!ndi::load_library()) {
-            CASPAR_THROW_EXCEPTION(not_supported() << msg_info(
-                                       ndi::dll_name() + L" not available. Install NDI Redist version 3.7 or higher."));
+            ndi::not_installed();
         }
 
         graph_->set_text(print());

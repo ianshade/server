@@ -24,8 +24,14 @@
 #include "ndi.h"
 
 #include <memory>
+#include <mutex>
 
-#include <Windows.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#include <stdlib.h>
+#endif
 
 #include <common/except.h>
 
@@ -48,15 +54,16 @@ void (*fs_capture_video)(NDIlib_framesync_instance_t p_instance,
                          NDIlib_frame_format_type_e  field_type) = nullptr;
 
 void (*fs_free_video)(NDIlib_framesync_instance_t p_instance, NDIlib_video_frame_v2_t* p_video_data) = nullptr;
-const std::wstring& dll_name();
-NDIlib_v3*          load_library();
 
 const std::wstring& dll_name()
 {
-    static std::wstring name = L"Processing.NDI.Lib.x64.dll";
+    static std::wstring name = u16(NDILIB_LIBRARY_NAME);
 
     return name;
 }
+
+static std::mutex                              find_instance_mutex;
+static std::shared_ptr<NDIlib_find_instance_t> find_instance;
 
 NDIlib_v3* load_library()
 {
@@ -64,25 +71,52 @@ NDIlib_v3* load_library()
 
     if (ndi_lib)
         return ndi_lib;
-    auto runtime_dir = _wgetenv(L"NDI_RUNTIME_DIR_V3");
+    const char* runtime_dir = getenv(NDILIB_REDIST_FOLDER);
 
     if (runtime_dir == NULL)
         return nullptr;
-    auto dll_path = boost::filesystem::path(runtime_dir) / dll_name();
-    auto module   = LoadLibrary(dll_path.c_str());
+
+    auto dll_path = boost::filesystem::path(runtime_dir) / NDILIB_LIBRARY_NAME;
+
+#ifdef _WIN32
+    auto module = LoadLibrary(dll_path.c_str());
 
     if (!module)
         return nullptr;
 
     static std::shared_ptr<void> lib(module, FreeLibrary);
 
-    wchar_t actualFilename[256];
-    GetModuleFileNameW(module, actualFilename, sizeof(actualFilename));
-    CASPAR_LOG(info) << L"Loaded " << actualFilename;
+    //    wchar_t actualFilename[256];
+    //    GetModuleFileNameW(module, actualFilename, sizeof(actualFilename));
+    CASPAR_LOG(info) << L"Loaded " << dll_path;
 
     auto NDIlib_v3_load = GetProcAddress(module, "NDIlib_v3_load");
-    ndi_lib             = (NDIlib_v3*)(NDIlib_v3_load());
+    if (!NDIlib_v3_load)
+        return nullptr;
 
+#else
+    // Try to load the library
+    void* hNDILib = dlopen(dll_path.c_str(), RTLD_LOCAL | RTLD_LAZY);
+
+    // The main NDI entry point for dynamic loading if we got the library
+    const NDIlib_v3* (*NDIlib_v3_load)(void) = NULL;
+    if (hNDILib) {
+        CASPAR_LOG(info) << L"Loaded " << dll_path;
+        static std::shared_ptr<void> lib(hNDILib, dlclose);
+        *((void**)&NDIlib_v3_load) = dlsym(hNDILib, "NDIlib_v3_load");
+    }
+    if (!NDIlib_v3_load)
+        return nullptr;
+
+#endif
+
+    ndi_lib = (NDIlib_v3*)(NDIlib_v3_load());
+
+    if (!ndi_lib->NDIlib_initialize()) {
+        not_initialized();
+    }
+
+#ifdef _WIN32
     // these functions have to be loaded this way because they aren't in NDIlib_v3 struct
     fs_create  = reinterpret_cast<decltype(fs_create)>(GetProcAddress(module, "NDIlib_framesync_create"));
     fs_destroy = reinterpret_cast<decltype(fs_destroy)>(GetProcAddress(module, "NDIlib_framesync_destroy"));
@@ -92,7 +126,44 @@ NDIlib_v3* load_library()
     fs_capture_video =
         reinterpret_cast<decltype(fs_capture_video)>(GetProcAddress(module, "NDIlib_framesync_capture_video"));
     fs_free_video = reinterpret_cast<decltype(fs_free_video)>(GetProcAddress(module, "NDIlib_framesync_free_video"));
+
+#else
+    *((void**)&fs_create)        = dlsym(hNDILib, "NDIlib_framesync_create");
+    *((void**)&fs_destroy)       = dlsym(hNDILib, "NDIlib_framesync_destroy");
+    *((void**)&fs_capture_audio) = dlsym(hNDILib, "NDIlib_framesync_capture_audio");
+    *((void**)&fs_free_audio)    = dlsym(hNDILib, "NDIlib_framesync_free_audio");
+    *((void**)&fs_capture_video) = dlsym(hNDILib, "NDIlib_framesync_capture_video");
+    *((void**)&fs_free_video)    = dlsym(hNDILib, "NDIlib_framesync_free_video");
+
+#endif
+    find_instance.reset(new NDIlib_find_instance_t(ndi_lib->NDIlib_find_create_v2(nullptr)),
+                        [](NDIlib_find_instance_t* p) { ndi_lib->NDIlib_find_destroy(*p); });
     return ndi_lib;
+}
+
+std::shared_ptr<std::map<std::string, NDIlib_source_t>> get_current_sources()
+{
+    auto                   sources_map = std::make_shared<std::map<std::string, NDIlib_source_t>>();
+    uint32_t               no_sources;
+    std::lock_guard<std::mutex> guard(find_instance_mutex);
+    const NDIlib_source_t* sources =
+        load_library()->NDIlib_find_get_current_sources(*(find_instance.get()), &no_sources);
+    for (uint32_t i = 0; i < no_sources; i++) {
+        sources_map->emplace(std::string(sources[i].p_ndi_name), sources[i]);
+    }
+    return sources_map;
+}
+
+void not_installed()
+{
+    CASPAR_THROW_EXCEPTION(not_supported()
+                           << msg_info(dll_name() + L" not available. Install NDI Redist version 3.7 or higher from " +
+                                       u16(NDILIB_REDIST_URL)));
+}
+
+void not_initialized()
+{
+    CASPAR_THROW_EXCEPTION(not_supported() << msg_info("Unable to initialize NDI on this system."));
 }
 
 std::vector<int32_t> audio_16_to_32(const short* audio_data, int size)
