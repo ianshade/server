@@ -141,15 +141,15 @@ NDIlib_v3* load_library()
     return ndi_lib;
 }
 
-std::shared_ptr<std::map<std::string, NDIlib_source_t>> get_current_sources()
+std::map<std::string, NDIlib_source_t> get_current_sources()
 {
-    auto                   sources_map = std::make_shared<std::map<std::string, NDIlib_source_t>>();
-    uint32_t               no_sources;
+    auto                        sources_map = std::map<std::string, NDIlib_source_t>();
+    uint32_t                    no_sources;
     std::lock_guard<std::mutex> guard(find_instance_mutex);
-    const NDIlib_source_t* sources =
+    const NDIlib_source_t*      sources =
         load_library()->NDIlib_find_get_current_sources(*(find_instance.get()), &no_sources);
     for (uint32_t i = 0; i < no_sources; i++) {
-        sources_map->emplace(std::string(sources[i].p_ndi_name), sources[i]);
+        sources_map.emplace(std::string(sources[i].p_ndi_name), sources[i]);
     }
     return sources_map;
 }

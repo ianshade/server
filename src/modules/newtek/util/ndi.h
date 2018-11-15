@@ -40,11 +40,11 @@ extern void (*fs_capture_video)(NDIlib_framesync_instance_t p_instance,
 
 extern void (*fs_free_video)(NDIlib_framesync_instance_t p_instance, NDIlib_video_frame_v2_t* p_video_data);
 
-const std::wstring&                                     dll_name();
-NDIlib_v3*                                              load_library();
-std::shared_ptr<std::map<std::string, NDIlib_source_t>> get_current_sources();
-void not_initialized();
-void not_installed();
+const std::wstring&                    dll_name();
+NDIlib_v3*                             load_library();
+std::map<std::string, NDIlib_source_t> get_current_sources();
+void                                   not_initialized();
+void                                   not_installed();
 
 std::vector<int32_t> audio_16_to_32(const short* audio_data, int size);
 std::vector<float>   audio_32_to_32f(const int* audio_data, int size);

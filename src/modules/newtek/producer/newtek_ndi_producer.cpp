@@ -235,23 +235,24 @@ struct newtek_ndi_producer : public core::frame_producer
 
     void initialize()
     {
-        ndi_lib_                        = ndi::load_library();
-        auto                    sources = ndi::get_current_sources();
+        ndi_lib_     = ndi::load_library();
+        auto sources = ndi::get_current_sources();
+
         NDIlib_recv_create_v3_t NDI_recv_create_desc;
         NDI_recv_create_desc.allow_video_fields = false;
         NDI_recv_create_desc.bandwidth          = NDIlib_recv_bandwidth_highest;
         NDI_recv_create_desc.color_format       = NDIlib_recv_color_format_BGRX_BGRA;
         std::string src_name                    = u8(name_);
 
-        auto found_source = sources->find(src_name);
-        if (found_source != sources->end()) {
+        auto found_source = sources.find(src_name);
+        if (found_source != sources.end()) {
             NDI_recv_create_desc.source_to_connect_to = found_source->second;
         } else {
             NDI_recv_create_desc.source_to_connect_to.p_ndi_name = src_name.c_str();
         }
-        NDI_recv_create_desc.p_ndi_recv_name                 = src_name.c_str();
-        ndi_recv_instance_                                   = ndi_lib_->NDIlib_recv_create_v3(&NDI_recv_create_desc);
-        ndi_framesync_                                       = ndi::fs_create(ndi_recv_instance_);
+        NDI_recv_create_desc.p_ndi_recv_name = src_name.c_str();
+        ndi_recv_instance_                   = ndi_lib_->NDIlib_recv_create_v3(&NDI_recv_create_desc);
+        ndi_framesync_                       = ndi::fs_create(ndi_recv_instance_);
         CASPAR_VERIFY(ndi_recv_instance_);
     }
 
