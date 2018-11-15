@@ -31,6 +31,9 @@
 
 #include <core/consumer/frame_consumer.h>
 
+#include <boost/property_tree/ptree.hpp>
+#include <common/env.h>
+
 namespace caspar { namespace newtek {
 
 void init(core::module_dependencies dependencies)
@@ -45,6 +48,10 @@ void init(core::module_dependencies dependencies)
                                                                                 create_preconfigured_ndi_consumer);
 
         dependencies.producer_registry->register_producer_factory(L"NDI Producer", create_ndi_producer);
+
+        bool autoload = caspar::env::properties().get(L"configuration.ndi.auto-load", false);
+        if (autoload)
+            ndi::load_library();
     
     } catch (...) {
     }
