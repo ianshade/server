@@ -155,10 +155,10 @@ struct newtek_ndi_consumer : public core::frame_consumer
 
     std::wstring print() const override
     {
-        return L"newtek-ndi[" + name_ + L"]";
+        return L"ndi[" + name_ + L"]";
     } // TODO: maybe put tally status in the name
 
-    std::wstring name() const override { return L"newtek-ndi"; }
+    std::wstring name() const override { return L"ndi"; }
 
     std::wstring default_ndi_name() const
     {
@@ -175,7 +175,7 @@ int newtek_ndi_consumer::instances_ = 0;
 spl::shared_ptr<core::frame_consumer> create_ndi_consumer(const std::vector<std::wstring>&                  params,
                                                           std::vector<spl::shared_ptr<core::video_channel>> channels)
 {
-    if (params.size() < 1 || !boost::iequals(params.at(0), L"NEWTEK_NDI"))
+    if (params.size() < 1 || !boost::iequals(params.at(0), L"NDI"))
         return core::frame_consumer::empty();
     std::wstring name;
     if (contains_param(L"NAME", params)) {

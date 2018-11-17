@@ -125,10 +125,10 @@ struct newtek_ndi_producer : public core::frame_producer
 
     std::wstring print() const override
     {
-        return L"newtek-ndi[" + boost::lexical_cast<std::wstring>(instance_no_) + L"|" + name_ + L"]";
+        return L"ndi[" + boost::lexical_cast<std::wstring>(instance_no_) + L"|" + name_ + L"]";
     }
 
-    std::wstring name() const override { return L"newtek-ndi"; }
+    std::wstring name() const override { return L"ndi"; }
 
     core::draw_frame receive_impl(int hints) override
     {
