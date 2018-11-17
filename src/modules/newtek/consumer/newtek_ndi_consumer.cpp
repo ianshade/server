@@ -44,6 +44,10 @@ namespace caspar { namespace newtek {
 
 struct newtek_ndi_consumer : public core::frame_consumer
 {
+    static int                           instances_;
+    int                                  instance_no_;
+    std::wstring                         name_;
+
     core::video_format_desc              format_desc_;
     NDIlib_v3*                           ndi_lib_;
     NDIlib_send_instance_t               ndi_send_instance_;
@@ -52,11 +56,11 @@ struct newtek_ndi_consumer : public core::frame_consumer
     spl::shared_ptr<diagnostics::graph>  graph_;
     caspar::timer                        tick_timer_;
     caspar::timer                        frame_timer_;
-    std::wstring                         name_;
 
   public:
     newtek_ndi_consumer(std::wstring name)
         : name_(name)
+        , instance_no_(instances_++)
     {
         if (!ndi::load_library()) {
             ndi::not_installed();
@@ -79,11 +83,13 @@ struct newtek_ndi_consumer : public core::frame_consumer
 
         ndi_lib_ = ndi::load_library();
         NDIlib_send_create_t NDI_send_create_desc;
-        auto                 tmp_name    = u8(name_);
-        NDI_send_create_desc.p_ndi_name  = tmp_name.c_str();
-        //NDI_send_create_desc.clock_video = false;
-        //NDI_send_create_desc.clock_audio = false;
-        ndi_send_instance_               = ndi_lib_->NDIlib_send_create(&NDI_send_create_desc);
+        if (name_.empty()) {
+            name_ = default_ndi_name();
+        }
+        auto                 tmp_name   = u8(name_);
+        NDI_send_create_desc.p_ndi_name = tmp_name.c_str();
+
+        ndi_send_instance_ = ndi_lib_->NDIlib_send_create(&NDI_send_create_desc);
 
         ndi_video_frame_.xres                 = format_desc.width;
         ndi_video_frame_.yres                 = format_desc.height;
@@ -129,17 +135,24 @@ struct newtek_ndi_consumer : public core::frame_consumer
 
     std::wstring name() const override { return L"newtek-ndi"; }
 
+    std::wstring default_ndi_name() const
+    {
+        return L"CasparCG" + (instance_no_ ? L" " + boost::lexical_cast<std::wstring>(instance_no_) : L"");
+    }
+
     int index() const override { return 900; }
 
     bool has_synchronization_clock() const override { return false; }
 };
+
+int                                   newtek_ndi_consumer::instances_ = 0;
 
 spl::shared_ptr<core::frame_consumer> create_ndi_consumer(const std::vector<std::wstring>&                  params,
                                                           std::vector<spl::shared_ptr<core::video_channel>> channels)
 {
     if (params.size() < 1 || !boost::iequals(params.at(0), L"NEWTEK_NDI"))
         return core::frame_consumer::empty();
-    std::wstring name = L"CasparCG";
+    std::wstring name;
     if (contains_param(L"NAME", params)) {
         name = get_param(L"NAME", params);
     }
@@ -150,8 +163,7 @@ spl::shared_ptr<core::frame_consumer>
 create_preconfigured_ndi_consumer(const boost::property_tree::wptree&               ptree,
                                   std::vector<spl::shared_ptr<core::video_channel>> channels)
 {
-    std::wstring name = L"CasparCG";
-    name              = ptree.get(L"name", name);
+    auto name = ptree.get(L"name", L"");
     return spl::make_shared<newtek_ndi_consumer>(name);
 }
 
