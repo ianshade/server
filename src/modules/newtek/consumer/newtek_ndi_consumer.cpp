@@ -44,24 +44,33 @@ namespace caspar { namespace newtek {
 
 struct newtek_ndi_consumer : public core::frame_consumer
 {
-    static int                           instances_;
-    int                                  instance_no_;
-    std::wstring                         name_;
+    static int   instances_;
+    int          instance_no_;
+    std::wstring name_;
+    bool         allow_fields_;
 
     core::video_format_desc              format_desc_;
     NDIlib_v3*                           ndi_lib_;
     NDIlib_send_instance_t               ndi_send_instance_;
     NDIlib_video_frame_v2_t              ndi_video_frame_;
     NDIlib_audio_frame_interleaved_32f_t ndi_audio_frame_;
+    std::shared_ptr<uint8_t>             field_data_;
     spl::shared_ptr<diagnostics::graph>  graph_;
     caspar::timer                        tick_timer_;
     caspar::timer                        frame_timer_;
+    int                                  frame_no_;
 
   public:
-    newtek_ndi_consumer(std::wstring name)
+    newtek_ndi_consumer(std::wstring name, bool allow_fields)
         : name_(name)
         , instance_no_(instances_++)
+        , frame_no_(0)
+        , allow_fields_(allow_fields)
     {
+        if (name_.empty()) {
+            name_ = default_ndi_name();
+        }
+
         if (!ndi::load_library()) {
             ndi::not_installed();
         }
@@ -73,7 +82,7 @@ struct newtek_ndi_consumer : public core::frame_consumer
         diagnostics::register_graph(graph_);
     }
 
-    ~newtek_ndi_consumer() {}
+    ~newtek_ndi_consumer() { ndi_lib_->NDIlib_send_destroy(ndi_send_instance_); }
 
     // frame_consumer
 
@@ -83,10 +92,8 @@ struct newtek_ndi_consumer : public core::frame_consumer
 
         ndi_lib_ = ndi::load_library();
         NDIlib_send_create_t NDI_send_create_desc;
-        if (name_.empty()) {
-            name_ = default_ndi_name();
-        }
-        auto                 tmp_name   = u8(name_);
+
+        auto tmp_name                   = u8(name_);
         NDI_send_create_desc.p_ndi_name = tmp_name.c_str();
 
         ndi_send_instance_ = ndi_lib_->NDIlib_send_create(&NDI_send_create_desc);
@@ -97,6 +104,16 @@ struct newtek_ndi_consumer : public core::frame_consumer
         ndi_video_frame_.frame_rate_D         = format_desc.framerate.denominator();
         ndi_video_frame_.FourCC               = NDIlib_FourCC_type_BGRA;
         ndi_video_frame_.line_stride_in_bytes = format_desc.width * 4;
+        ndi_video_frame_.frame_format_type    = NDIlib_frame_format_type_progressive;
+
+        if (format_desc.field_count == 2 && allow_fields_) {
+            ndi_video_frame_.yres /= 2;
+            ndi_video_frame_.frame_rate_N /= 2; 
+            ndi_video_frame_.picture_aspect_ratio = format_desc.width*1.0f / format_desc.height;
+            field_data_.reset(new uint8_t[ndi_video_frame_.line_stride_in_bytes * ndi_video_frame_.yres],
+                              std::default_delete<uint8_t[]>());
+            ndi_video_frame_.p_data = field_data_.get();
+        }
 
         ndi_audio_frame_.sample_rate = format_desc_.audio_sample_rate;
         ndi_audio_frame_.no_channels = format_desc_.audio_channels;
@@ -112,17 +129,25 @@ struct newtek_ndi_consumer : public core::frame_consumer
         graph_->set_value("tick-time", tick_timer_.elapsed() * format_desc_.fps * 0.5);
         tick_timer_.restart();
         frame_timer_.restart();
-
         auto audio_data                 = frame.audio_data();
         int  audio_data_size            = static_cast<int>(audio_data.size());
         ndi_audio_frame_.no_samples     = audio_data_size / format_desc_.audio_channels;
         std::vector<float> audio_buffer = ndi::audio_32_to_32f(audio_data.data(), audio_data_size);
         ndi_audio_frame_.p_data         = const_cast<float*>(audio_buffer.data());
         ndi_lib_->NDIlib_util_send_send_audio_interleaved_32f(ndi_send_instance_, &ndi_audio_frame_);
-
-        ndi_video_frame_.p_data = const_cast<uint8_t*>(frame.image_data(0).begin());
+        if (format_desc_.field_count == 2 && allow_fields_) {
+            ndi_video_frame_.frame_format_type =
+                (frame_no_ % 2 ? NDIlib_frame_format_type_field_1 : NDIlib_frame_format_type_field_0);
+            for (auto y = 0; y < ndi_video_frame_.yres; ++y) {
+                std::memcpy(reinterpret_cast<char*>(ndi_video_frame_.p_data) + y * format_desc_.width * 4,
+                            frame.image_data(0).data() + (y * 2 + frame_no_ % 2) * format_desc_.width * 4,
+                            format_desc_.width * 4);
+            }
+        } else {
+            ndi_video_frame_.p_data = const_cast<uint8_t*>(frame.image_data(0).begin());
+        }
         ndi_lib_->NDIlib_send_send_video_v2(ndi_send_instance_, &ndi_video_frame_);
-
+        frame_no_++;
         graph_->set_value("frame-time", frame_timer_.elapsed() * format_desc_.fps * 0.5);
 
         return make_ready_future(true);
@@ -145,7 +170,7 @@ struct newtek_ndi_consumer : public core::frame_consumer
     bool has_synchronization_clock() const override { return false; }
 };
 
-int                                   newtek_ndi_consumer::instances_ = 0;
+int newtek_ndi_consumer::instances_ = 0;
 
 spl::shared_ptr<core::frame_consumer> create_ndi_consumer(const std::vector<std::wstring>&                  params,
                                                           std::vector<spl::shared_ptr<core::video_channel>> channels)
@@ -156,7 +181,8 @@ spl::shared_ptr<core::frame_consumer> create_ndi_consumer(const std::vector<std:
     if (contains_param(L"NAME", params)) {
         name = get_param(L"NAME", params);
     }
-    return spl::make_shared<newtek_ndi_consumer>(name);
+    bool allow_fields = contains_param(L"ALLOW_FIELDS", params);
+    return spl::make_shared<newtek_ndi_consumer>(name, allow_fields);
 }
 
 spl::shared_ptr<core::frame_consumer>
@@ -164,7 +190,8 @@ create_preconfigured_ndi_consumer(const boost::property_tree::wptree&           
                                   std::vector<spl::shared_ptr<core::video_channel>> channels)
 {
     auto name = ptree.get(L"name", L"");
-    return spl::make_shared<newtek_ndi_consumer>(name);
+    bool allow_fields = ptree.get(L"allow-fields", false);
+    return spl::make_shared<newtek_ndi_consumer>(name, allow_fields);
 }
 
 }} // namespace caspar::newtek
