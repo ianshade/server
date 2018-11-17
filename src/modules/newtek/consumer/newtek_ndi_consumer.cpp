@@ -44,10 +44,10 @@ namespace caspar { namespace newtek {
 
 struct newtek_ndi_consumer : public core::frame_consumer
 {
-    static int   instances_;
-    int          instance_no_;
-    std::wstring name_;
-    bool         allow_fields_;
+    static int         instances_;
+    const int          instance_no_;
+    const std::wstring name_;
+    const bool         allow_fields_;
 
     core::video_format_desc              format_desc_;
     NDIlib_v3*                           ndi_lib_;
@@ -62,15 +62,11 @@ struct newtek_ndi_consumer : public core::frame_consumer
 
   public:
     newtek_ndi_consumer(std::wstring name, bool allow_fields)
-        : name_(name)
+        : name_(!name.empty() ? name : default_ndi_name())
         , instance_no_(instances_++)
         , frame_no_(0)
         , allow_fields_(allow_fields)
     {
-        if (name_.empty()) {
-            name_ = default_ndi_name();
-        }
-
         if (!ndi::load_library()) {
             ndi::not_installed();
         }
@@ -108,8 +104,8 @@ struct newtek_ndi_consumer : public core::frame_consumer
 
         if (format_desc.field_count == 2 && allow_fields_) {
             ndi_video_frame_.yres /= 2;
-            ndi_video_frame_.frame_rate_N /= 2; 
-            ndi_video_frame_.picture_aspect_ratio = format_desc.width*1.0f / format_desc.height;
+            ndi_video_frame_.frame_rate_N /= 2;
+            ndi_video_frame_.picture_aspect_ratio = format_desc.width * 1.0f / format_desc.height;
             field_data_.reset(new uint8_t[ndi_video_frame_.line_stride_in_bytes * ndi_video_frame_.yres],
                               std::default_delete<uint8_t[]>());
             ndi_video_frame_.p_data = field_data_.get();
@@ -153,10 +149,7 @@ struct newtek_ndi_consumer : public core::frame_consumer
         return make_ready_future(true);
     }
 
-    std::wstring print() const override
-    {
-        return L"ndi[" + name_ + L"]";
-    } // TODO: maybe put tally status in the name
+    std::wstring print() const override { return L"ndi[" + name_ + L"]"; } // TODO: maybe put tally status in the name
 
     std::wstring name() const override { return L"ndi"; }
 
@@ -189,7 +182,7 @@ spl::shared_ptr<core::frame_consumer>
 create_preconfigured_ndi_consumer(const boost::property_tree::wptree&               ptree,
                                   std::vector<spl::shared_ptr<core::video_channel>> channels)
 {
-    auto name = ptree.get(L"name", L"");
+    auto name         = ptree.get(L"name", L"");
     bool allow_fields = ptree.get(L"allow-fields", false);
     return spl::make_shared<newtek_ndi_consumer>(name, allow_fields);
 }

@@ -67,8 +67,9 @@ namespace caspar { namespace newtek {
 struct newtek_ndi_producer : public core::frame_producer
 {
     static int         instances_;
-    int                instance_no_;
+    const int          instance_no_;
     const std::wstring name_;
+    const bool         low_bandwidth_;
 
     spl::shared_ptr<core::frame_factory> frame_factory_;
     core::video_format_desc              format_desc_;
@@ -93,10 +94,12 @@ struct newtek_ndi_producer : public core::frame_producer
   public:
     explicit newtek_ndi_producer(spl::shared_ptr<core::frame_factory> frame_factory,
                                  core::video_format_desc              format_desc,
-                                 std::wstring                         name)
+                                 std::wstring                         name,
+                                 bool                                 low_bandwidth)
         : format_desc_(format_desc)
         , frame_factory_(frame_factory)
         , name_(name)
+        , low_bandwidth_(low_bandwidth)
         , executor_(print())
         , instance_no_(instances_++)
         , cadence_counter_(0)
@@ -240,9 +243,9 @@ struct newtek_ndi_producer : public core::frame_producer
 
         NDIlib_recv_create_v3_t NDI_recv_create_desc;
         NDI_recv_create_desc.allow_video_fields = false;
-        NDI_recv_create_desc.bandwidth          = NDIlib_recv_bandwidth_highest;
-        NDI_recv_create_desc.color_format       = NDIlib_recv_color_format_BGRX_BGRA;
-        std::string src_name                    = u8(name_);
+        NDI_recv_create_desc.bandwidth = low_bandwidth_ ? NDIlib_recv_bandwidth_lowest : NDIlib_recv_bandwidth_highest;
+        NDI_recv_create_desc.color_format = NDIlib_recv_color_format_BGRX_BGRA;
+        std::string src_name              = u8(name_);
 
         auto found_source = sources.find(src_name);
         if (found_source != sources.end()) {
@@ -273,11 +276,12 @@ spl::shared_ptr<core::frame_producer> create_ndi_producer(const core::frame_prod
     if (params.size() < 2 || !boost::iequals(params.at(0), "ndi"))
         return core::frame_producer::empty();
 
-    auto name = params.at(1);
+    auto name          = params.at(1);
+    bool low_bandwidth = contains_param(L"LOW_BANDWIDTH", params);
 
     try {
-        auto producer =
-            spl::make_shared<newtek_ndi_producer>(dependencies.frame_factory, dependencies.format_desc, name);
+        auto producer = spl::make_shared<newtek_ndi_producer>(
+            dependencies.frame_factory, dependencies.format_desc, name, low_bandwidth);
         return core::create_destroy_proxy(std::move(producer));
     } catch (...) {
         CASPAR_LOG_CURRENT_EXCEPTION();
