@@ -39,6 +39,8 @@ enum class pixel_format
     rgb,
     uyvy,
     uyva,
+    i420,
+    nv12,
     count,
     invalid,
 };

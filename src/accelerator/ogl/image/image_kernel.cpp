@@ -243,10 +243,11 @@ struct image_kernel::impl
 
         // Setup conversion shader
 
-        bool converted = false;
+        bool                     converted = false;
         std::shared_ptr<texture> conversion_texture;
 
-        if (params.pix_desc.format == core::pixel_format::uyvy) {
+        if (params.pix_desc.format == core::pixel_format::uyvy || params.pix_desc.format == core::pixel_format::uyva ||
+            params.pix_desc.format == core::pixel_format::nv12) {
             converted = true;
             GL(glGetIntegerv(GL_FRAMEBUFFER_BINDING, &default_fbo_));
             int width  = params.pix_desc.planes.at(0).width;
@@ -272,21 +273,27 @@ struct image_kernel::impl
 
             GL(glViewport(0, 0, width, height));
 
-            glGenVertexArrays(1, &vao_);
-            glBindVertexArray(vao_);
+            GL(glGenVertexArrays(1, &vao_));
+            GL(glBindVertexArray(vao_));
 
             static const GLfloat vertices[] = {
-                -1.0f, -1.0f, 
-                1.0f, -1.0f,
-                -1.0f, 1.0f,
-                -1.0f, 1.0f, 
-                1.0f, -1.0f,
-                1.0f, 1.0f,
+                -1.0f,
+                -1.0f,
+                1.0f,
+                -1.0f,
+                -1.0f,
+                1.0f,
+                -1.0f,
+                1.0f,
+                1.0f,
+                -1.0f,
+                1.0f,
+                1.0f,
             };
 
-            glGenBuffers(1, &vbo_);
-            glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-            glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+            GL(glGenBuffers(1, &vbo_));
+            GL(glBindBuffer(GL_ARRAY_BUFFER, vbo_));
+            GL(glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW));
 
             auto vtx_loc = conversion_->get_attrib_location("Position");
             auto tex_loc = conversion_->get_attrib_location("TexCoordIn");
@@ -297,7 +304,7 @@ struct image_kernel::impl
             GL(glEnableVertexAttribArray(vtx_loc));
             GL(glEnableVertexAttribArray(tex_loc));
 
-            glDrawArrays(GL_TRIANGLES, 0, 6);
+            GL(glDrawArrays(GL_TRIANGLES, 0, 6));
             GL(glTextureBarrier());
             GL(glDisableVertexAttribArray(vtx_loc));
             GL(glDisableVertexAttribArray(tex_loc));

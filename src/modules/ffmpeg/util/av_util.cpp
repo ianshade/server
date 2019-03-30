@@ -39,10 +39,11 @@ std::shared_ptr<AVPacket> alloc_packet()
 core::mutable_frame make_frame(void*                    tag,
                                core::frame_factory&     frame_factory,
                                std::shared_ptr<AVFrame> video,
-                               std::shared_ptr<AVFrame> audio)
+                               std::shared_ptr<AVFrame> audio,
+                               core::pixel_format       custom_format)
 {
     const auto pix_desc =
-        video ? pixel_format_desc(static_cast<AVPixelFormat>(video->format), video->width, video->height)
+        video ? pixel_format_desc(static_cast<AVPixelFormat>(video->format), video->width, video->height, custom_format)
               : core::pixel_format_desc(core::pixel_format::invalid);
 
     auto frame = frame_factory.create_frame(tag, pix_desc);
@@ -107,20 +108,26 @@ core::pixel_format get_pixel_format(AVPixelFormat pix_fmt)
             return core::pixel_format::ycbcra;
         case AV_PIX_FMT_UYVY422:
             return core::pixel_format::uyvy;
-        case AV_PIX_FMT_YVYU422: // HACK: ffmpeg doesn't know UYVA (?) 
-            return core::pixel_format::uyva;
+        case AV_PIX_FMT_NV12:
+            return core::pixel_format::nv12;
         default:
             return core::pixel_format::invalid;
     }
 }
 
-core::pixel_format_desc pixel_format_desc(AVPixelFormat pix_fmt, int width, int height)
+core::pixel_format_desc pixel_format_desc(AVPixelFormat      pix_fmt,
+                                          int                width,
+                                          int                height,
+                                          core::pixel_format custom_format)
 {
     // Get linesizes
     AVPicture dummy_pict;
     avpicture_fill(&dummy_pict, nullptr, pix_fmt, width, height);
 
-    core::pixel_format_desc desc = get_pixel_format(pix_fmt);
+    core::pixel_format_desc desc = custom_format;
+    if (desc.format == core::pixel_format::invalid) {
+        desc = get_pixel_format(pix_fmt);
+    }
 
     switch (desc.format) {
         case core::pixel_format::gray:
@@ -140,6 +147,7 @@ core::pixel_format_desc pixel_format_desc(AVPixelFormat pix_fmt, int width, int 
             desc.planes.push_back(core::pixel_format_desc::plane(dummy_pict.linesize[0] / 4, height, 4));
             return desc;
         }
+        case core::pixel_format::i420:
         case core::pixel_format::ycbcr:
         case core::pixel_format::ycbcra: {
             // Find chroma height
@@ -163,6 +171,13 @@ core::pixel_format_desc pixel_format_desc(AVPixelFormat pix_fmt, int width, int 
             desc.planes.push_back(core::pixel_format_desc::plane(dummy_pict.linesize[0] / 2, height, 2));
             desc.planes.push_back(core::pixel_format_desc::plane(dummy_pict.linesize[0] / 2, height, 1));
             return desc;
+        }
+        case core::pixel_format::nv12: {
+            // Find chroma height
+            int h2 = height / 2;
+
+            desc.planes.push_back(core::pixel_format_desc::plane(dummy_pict.linesize[0], height, 1));
+            desc.planes.push_back(core::pixel_format_desc::plane(dummy_pict.linesize[1] / 2, h2, 2));
         }
         default:
             desc.format = core::pixel_format::invalid;

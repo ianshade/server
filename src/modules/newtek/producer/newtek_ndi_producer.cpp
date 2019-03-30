@@ -160,8 +160,9 @@ struct newtek_ndi_producer : public core::frame_producer
             if (video_frame.p_data != nullptr) {
                 std::shared_ptr<AVFrame> av_frame(av_frame_alloc(), [](AVFrame* frame) { av_frame_free(&frame); });
                 std::shared_ptr<AVFrame> a_frame(av_frame_alloc(), [](AVFrame* frame) { av_frame_free(&frame); });
-                av_frame->data[0]     = video_frame.p_data;
-                av_frame->linesize[0] = video_frame.line_stride_in_bytes;
+                av_frame->data[0]                = video_frame.p_data;
+                av_frame->linesize[0]            = video_frame.line_stride_in_bytes;
+                core::pixel_format custom_format = core::pixel_format::invalid;
                 switch (video_frame.FourCC) {
                     case NDIlib_FourCC_type_BGRA:
                         av_frame->format = AV_PIX_FMT_BGRA;
@@ -178,8 +179,20 @@ struct newtek_ndi_producer : public core::frame_producer
                     case NDIlib_FourCC_type_UYVY:
                         av_frame->format = AV_PIX_FMT_UYVY422;
                         break;
-                    case NDIlib_FourCC_type_UYVA: 
-                        av_frame->format = AV_PIX_FMT_YVYU422; // HACK: ffmpeg doesn't know UYVA (?)
+                    case NDIlib_FourCC_type_UYVA:
+                        av_frame->format  = AV_PIX_FMT_UYVY422;
+                        av_frame->data[1] = video_frame.p_data + video_frame.line_stride_in_bytes * video_frame.yres;
+                        custom_format     = core::pixel_format::uyva;
+                        break;
+                    case NDIlib_FourCC_type_YV12:
+                        av_frame->format = AV_PIX_FMT_YUV420P; //TODO: split planes
+                        break;
+                    case NDIlib_FourCC_type_I420:
+                        av_frame->format = AV_PIX_FMT_YUV420P;
+                        custom_format    = core::pixel_format::i420;
+                        break;
+                    case NDIlib_FourCC_type_NV12:
+                        av_frame->format = AV_PIX_FMT_NV12;
                         break;
                     default:
                         av_frame->format = AV_PIX_FMT_UYVY422;
@@ -198,9 +211,8 @@ struct newtek_ndi_producer : public core::frame_producer
                     a_frame->data[0]     = reinterpret_cast<uint8_t*>(audio_frame_32s.p_data);
                 }
                 ndi_lib_->NDIlib_framesync_free_audio(ndi_framesync_, &audio_frame);
-                auto mframe =
-                    ffmpeg::make_frame(this, *(frame_factory_.get()), std::move(av_frame), std::move(a_frame));
-                ndi_lib_->NDIlib_framesync_free_video(ndi_framesync_, &video_frame);
+                auto mframe = ffmpeg::make_frame(
+                    this, *(frame_factory_.get()), std::move(av_frame), std::move(a_frame), custom_format);
                 delete[] audio_frame_32s.p_data;
                 auto dframe = core::draw_frame(std::move(mframe));
                 {
@@ -211,6 +223,7 @@ struct newtek_ndi_producer : public core::frame_producer
                         graph_->set_tag(diagnostics::tag_severity::WARNING, "dropped-frame");
                     }
                 }
+                ndi_lib_->NDIlib_framesync_free_video(ndi_framesync_, &video_frame);
             }
 
             graph_->set_value("frame-time", frame_timer_.elapsed() * format_desc_.fps * 0.5);
@@ -231,8 +244,8 @@ struct newtek_ndi_producer : public core::frame_producer
         NDI_recv_create_desc.allow_video_fields = false;
         NDI_recv_create_desc.bandwidth = low_bandwidth_ ? NDIlib_recv_bandwidth_lowest : NDIlib_recv_bandwidth_highest;
         NDI_recv_create_desc.color_format =
-            NDIlib_recv_color_format_UYVY_RGBA; // TODO: implement all required formats to change it to
-                                                // NDIlib_recv_color_format_fastest
+            NDIlib_recv_color_format_fastest; // FIXME: this implies allowing video fields
+
         std::string src_name = u8(name_);
 
         auto found_source = sources.find(src_name);

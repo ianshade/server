@@ -82,6 +82,11 @@ vec4 get_rgba_color()
             }
             return ycbcra_to_rgba(y, cb, cr, a);
         }
+    case 13: // nv12,
+        {
+            //TODO
+            return ycbcra_to_rgba(0.0, 0.0, 0.0, 0.0);
+        }
     }
     return vec4(0.0, 0.0, 0.0, 0.0);
 }
