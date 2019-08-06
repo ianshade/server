@@ -26,6 +26,8 @@
 
 #include <common/memory.h>
 
+#include <core/frame/pixel_format.h>
+
 #include <boost/property_tree/ptree_fwd.hpp>
 
 #include <functional>
@@ -59,6 +61,7 @@ class frame_consumer
     virtual std::wstring name() const  = 0;
     virtual bool         has_synchronization_clock() const { return false; }
     virtual int          index() const = 0;
+    virtual pixel_format pixel_format() const { return pixel_format::bgra; }
 };
 
 using consumer_factory_t =

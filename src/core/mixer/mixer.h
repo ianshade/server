@@ -27,6 +27,8 @@
 #include <core/fwd.h>
 #include <core/monitor/monitor.h>
 
+#include <core/frame/pixel_format.h>
+
 FORWARD2(caspar, diagnostics, class graph);
 
 namespace caspar { namespace core {
@@ -41,7 +43,10 @@ class mixer final
                    spl::shared_ptr<caspar::diagnostics::graph> graph,
                    spl::shared_ptr<image_mixer>                image_mixer);
 
-    const_frame operator()(std::vector<draw_frame> frames, const video_format_desc& format_desc, int nb_samples);
+    spl::shared_ptr <std::map<pixel_format, const_frame>> operator()(std::vector<draw_frame>         frames,
+                           const video_format_desc&        format_desc,
+                           int                             nb_samples,
+                           std::vector<core::pixel_format> pixel_formats);
 
     void  set_master_volume(float volume);
     float get_master_volume();

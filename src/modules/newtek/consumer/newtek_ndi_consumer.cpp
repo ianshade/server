@@ -26,6 +26,7 @@
 
 #include <core/consumer/frame_consumer.h>
 #include <core/frame/frame.h>
+#include <core/frame/pixel_format.h>
 #include <core/mixer/audio/audio_util.h>
 #include <core/video_format.h>
 
@@ -48,6 +49,7 @@ struct newtek_ndi_consumer : public core::frame_consumer
     const int               instance_no_;
     const std::wstring      name_;
     const bool              allow_fields_;
+    const bool              is_uyvy_;
 
     core::video_format_desc              format_desc_;
     int                                  channel_index_;
@@ -63,12 +65,13 @@ struct newtek_ndi_consumer : public core::frame_consumer
     std::unique_ptr<NDIlib_send_instance_t, std::function<void(NDIlib_send_instance_t*)>> ndi_send_instance_;
 
   public:
-    newtek_ndi_consumer(std::wstring name, bool allow_fields)
+    newtek_ndi_consumer(std::wstring name, bool allow_fields, bool is_uyvy)
         : name_(!name.empty() ? name : default_ndi_name())
         , instance_no_(instances_++)
         , frame_no_(0)
         , allow_fields_(allow_fields)
         , channel_index_(0)
+        , is_uyvy_(is_uyvy)
     {
         ndi_lib_ = ndi::load_library();
         graph_->set_text(print());
@@ -99,8 +102,8 @@ struct newtek_ndi_consumer : public core::frame_consumer
         ndi_video_frame_.yres                 = format_desc.height;
         ndi_video_frame_.frame_rate_N         = format_desc.framerate.numerator();
         ndi_video_frame_.frame_rate_D         = format_desc.framerate.denominator();
-        ndi_video_frame_.FourCC               = NDIlib_FourCC_type_BGRA;
-        ndi_video_frame_.line_stride_in_bytes = format_desc.width * 4;
+        ndi_video_frame_.FourCC               = is_uyvy_ ? NDIlib_FourCC_type_UYVY : NDIlib_FourCC_type_BGRA;
+        ndi_video_frame_.line_stride_in_bytes = is_uyvy_ ? format_desc.width * 2 : format_desc.width * 4;
         ndi_video_frame_.frame_format_type    = NDIlib_frame_format_type_progressive;
 
         if (format_desc.field_count == 2 && allow_fields_) {
@@ -169,6 +172,8 @@ struct newtek_ndi_consumer : public core::frame_consumer
     int index() const override { return 900; }
 
     bool has_synchronization_clock() const override { return false; }
+
+    core::pixel_format pixel_format() const override { return is_uyvy_ ? core::pixel_format::uyvy : core::pixel_format::bgra; }
 };
 
 std::atomic<int> newtek_ndi_consumer::instances_(0);
@@ -180,7 +185,7 @@ spl::shared_ptr<core::frame_consumer> create_ndi_consumer(const std::vector<std:
         return core::frame_consumer::empty();
     std::wstring name         = get_param(L"NAME", params, L"");
     bool         allow_fields = contains_param(L"ALLOW_FIELDS", params);
-    return spl::make_shared<newtek_ndi_consumer>(name, allow_fields);
+    return spl::make_shared<newtek_ndi_consumer>(name, allow_fields, true);
 }
 
 spl::shared_ptr<core::frame_consumer>
@@ -189,7 +194,7 @@ create_preconfigured_ndi_consumer(const boost::property_tree::wptree&           
 {
     auto name         = ptree.get(L"name", L"");
     bool allow_fields = ptree.get(L"allow-fields", false);
-    return spl::make_shared<newtek_ndi_consumer>(name, allow_fields);
+    return spl::make_shared<newtek_ndi_consumer>(name, allow_fields, true);
 }
 
 }} // namespace caspar::newtek

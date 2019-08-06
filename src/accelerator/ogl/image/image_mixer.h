@@ -25,6 +25,7 @@
 #include <common/memory.h>
 
 #include <core/frame/frame.h>
+#include <core/frame/pixel_format.h>
 #include <core/mixer/image/image_mixer.h>
 #include <core/video_format.h>
 
@@ -42,7 +43,9 @@ class image_mixer final : public core::image_mixer
 
     image_mixer& operator=(const image_mixer&) = delete;
 
-    std::future<array<const std::uint8_t>> operator()(const core::video_format_desc& format_desc) override;
+    std::map<core::pixel_format, std::shared_future<array<const std::uint8_t>>>
+                                           operator()(const core::video_format_desc& format_desc,
+                                                      std::vector<core::pixel_format> pixel_formats) override;
     core::mutable_frame                    create_frame(const void* tag, const core::pixel_format_desc& desc) override;
 
     // core::image_mixer

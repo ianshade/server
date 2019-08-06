@@ -29,6 +29,7 @@
 #include "frame/draw_frame.h"
 #include "frame/frame.h"
 #include "frame/frame_factory.h"
+#include "frame/pixel_format.h"
 #include "mixer/mixer.h"
 #include "producer/stage.h"
 
@@ -148,13 +149,16 @@ struct video_channel::impl final
                     for (auto& p : stage_frames) {
                         frames.push_back(p.second.foreground);
                     }
+                    std::vector<core::pixel_format> pixel_formats;
+                    pixel_formats.push_back(pixel_format::bgra);
+                    pixel_formats.push_back(pixel_format::uyvy);
 
-                    auto mixed_frame = mixer_(frames, format_desc, format_desc.audio_cadence[0]);
+                    auto mixed_frames = mixer_(frames, format_desc, format_desc.audio_cadence[0], pixel_formats);
                     graph_->set_value("mix-time", mix_timer.elapsed() * format_desc.fps * 0.5);
 
                     // Consume
                     caspar::timer consume_timer;
-                    output_(std::move(mixed_frame), format_desc);
+                    output_(std::move((*mixed_frames)), format_desc);
                     graph_->set_value("consume-time", consume_timer.elapsed() * format_desc.fps * 0.5);
 
                     graph_->set_value("frame-time", frame_timer.elapsed() * format_desc.fps * 0.5);

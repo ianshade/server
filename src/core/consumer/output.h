@@ -22,6 +22,7 @@
 #pragma once
 
 #include "../fwd.h"
+#include "../frame/pixel_format.h"
 #include "../monitor/monitor.h"
 
 #include <common/forward.h>
@@ -42,7 +43,7 @@ class output final
     output& operator=(const output&) = delete;
     ~output();
 
-    void operator()(const_frame frame, const video_format_desc& format_desc);
+    void operator()(std::map<pixel_format, const_frame> frame, const video_format_desc& format_desc);
 
     void add(const spl::shared_ptr<frame_consumer>& consumer);
     void add(int index, const spl::shared_ptr<frame_consumer>& consumer);

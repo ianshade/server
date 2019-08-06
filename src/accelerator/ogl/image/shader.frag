@@ -467,6 +467,34 @@ vec4 ycbcra_to_rgba(float y, float cb, float cr, float a)
         return ycbcra_to_rgba_sd(y, cb, cr, a);
 }
 
+vec4 rgba_to_ycbcra_sd(float R, float G, float B, float A)
+{
+    vec4 ycbcra;
+    ycbcra.b = (1.164*(R*255 - 16) + 1.596*(G*255 - 128))/255;
+    ycbcra.g = (1.164*(R*255 - 16) - 0.813*(G*255 - 128) - 0.391*(B*255 - 128))/255;
+    ycbcra.r = (1.164*(R*255 - 16) + 2.018*(G*255 - 128))/255;
+    ycbcra.a = A;
+    return ycbcra;
+}
+
+vec4 rgba_to_ycbcra_hd(float R, float G, float B, float A)
+{
+    vec4 ycbcra;
+    ycbcra.b = (1.164*(R*255 - 16) + 1.793*(G*255 - 128))/255;
+    ycbcra.g = (1.164*(R*255 - 16) - 0.534*(G*255 - 128) - 0.213*(B*255 - 128))/255;
+    ycbcra.r = (1.164*(R*255 - 16) + 2.115*(G*255 - 128))/255;
+    ycbcra.a = A;
+    return ycbcra;
+}
+
+vec4 rgba_to_ycbcra(float R, float G, float B, float A)
+{
+    if(is_hd)
+        return rgba_to_ycbcra_hd(R, G, B, A);
+    else
+        return rgba_to_ycbcra_sd(R, G, B, A);
+}
+
 vec4 get_sample(sampler2D sampler, vec2 coords)
 {
     return texture2D(sampler, coords);

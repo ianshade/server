@@ -23,6 +23,7 @@
 #include "frame_consumer.h"
 
 #include "../frame/frame.h"
+#include "../frame/pixel_format.h"
 #include "../monitor/monitor.h"
 #include "../video_format.h"
 
@@ -85,16 +86,17 @@ struct output::impl
 
     bool remove(const spl::shared_ptr<frame_consumer>& consumer) { return remove(consumer->index()); }
 
-    void operator()(const_frame input_frame, const core::video_format_desc& format_desc)
+    void operator()(std::map<pixel_format, const_frame> input_frame, const core::video_format_desc& format_desc)
     {
-        if (!input_frame) {
+        if (input_frame.size() < 1) {
             return;
         }
 
-        if (input_frame.size() != format_desc_.size) {
-            CASPAR_LOG(warning) << print() << L" Invalid input frame size.";
-            return;
-        }
+        ////FIXME
+        //if (input_frame.size() != format_desc_.size) {
+        //    CASPAR_LOG(warning) << print() << L" Invalid input frame size.";
+        //    return;
+        //}
 
         auto time = std::move(time_);
 
@@ -124,7 +126,7 @@ struct output::impl
 
         for (auto it = consumers_.begin(); it != consumers_.end();) {
             try {
-                futures.emplace(it->first, it->second->send(input_frame));
+                futures.emplace(it->first, it->second->send(input_frame[it->second->pixel_format()]));
                 ++it;
             } catch (...) {
                 CASPAR_LOG_CURRENT_EXCEPTION();
@@ -176,7 +178,7 @@ void output::add(int index, const spl::shared_ptr<frame_consumer>& consumer) { i
 void output::add(const spl::shared_ptr<frame_consumer>& consumer) { impl_->add(consumer); }
 bool output::remove(int index) { return impl_->remove(index); }
 bool output::remove(const spl::shared_ptr<frame_consumer>& consumer) { return impl_->remove(consumer); }
-void output::operator()(const_frame frame, const video_format_desc& format_desc)
+void output::operator()(std::map<pixel_format, const_frame> frame, const video_format_desc& format_desc)
 {
     return (*impl_)(std::move(frame), format_desc);
 }

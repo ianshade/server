@@ -24,6 +24,7 @@
 #include <core/frame/frame.h>
 #include <core/frame/frame_factory.h>
 #include <core/frame/frame_visitor.h>
+#include <core/frame/pixel_format.h>
 
 #include <cstdint>
 #include <future>
@@ -45,7 +46,9 @@ class image_mixer
     void visit(const class const_frame& frame) override     = 0;
     void pop() override                                     = 0;
 
-    virtual std::future<array<const uint8_t>> operator()(const struct video_format_desc& format_desc) = 0;
+    virtual std::map<pixel_format, std::shared_future<array<const std::uint8_t>>>
+    operator()(const struct video_format_desc& format_desc,
+                                                         std::vector<pixel_format> pixel_formats) = 0;
 
     class mutable_frame create_frame(const void* tag, const struct pixel_format_desc& desc) override = 0;
 };
